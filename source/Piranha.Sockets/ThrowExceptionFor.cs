@@ -16,4 +16,10 @@ static class ThrowExceptionFor
     {
         throw new InvalidOperationException("Socket reported error state.");
     }
+
+    [DoesNotReturn]
+    public static void BadPollState()
+    {
+        throw new InvalidOperationException("Unexpected poll event state.");
+    }
 }

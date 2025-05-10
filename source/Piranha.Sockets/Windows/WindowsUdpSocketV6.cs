@@ -41,9 +41,9 @@ sealed class WindowsUdpSocketV6 : IUdpSocket<AddressV6>
             var error = Sys.WsaGetLastError();
             if (!Error.IsInterrupt(error) || HandleInterruptOnSend == InterruptHandling.Error)
                 Sys.Throw(error, ExceptionMessages.SendDatagram);
-            if (HandleInterruptOnSend != InterruptHandling.Abort)
-                goto retry;
-            return new(SocketResult.Interrupt);
+            if (HandleInterruptOnSend == InterruptHandling.Abort)
+                return new(SocketResult.Interrupt);
+            goto retry;
         }
 
         return new((int)result);
@@ -51,10 +51,10 @@ sealed class WindowsUdpSocketV6 : IUdpSocket<AddressV6>
 
     public unsafe TransferResult Receive(
         Span<byte> buffer,
-        TimeSpan timeout,
+        int timeoutInMilliseconds,
         out Endpoint<AddressV6> origin)
     {
-        var milliseconds = Core.GetMilliseconds(timeout);
+        var milliseconds = int.Max(0, timeoutInMilliseconds);
         var pfd = new WsaPollFd { Fd = _fd, Events = Poll.In };
 
     retry:
@@ -63,8 +63,10 @@ sealed class WindowsUdpSocketV6 : IUdpSocket<AddressV6>
 
         if (0 < pollResult)
         {
+            ObjectDisposedException.ThrowIf((pfd.REvents & Poll.Nval) != 0, this);
             if ((pfd.REvents & Poll.In) != 0)
             {
+            retryReceive:
                 var addressLength = SockAddrStorage.Len;
                 var receiveResult = Sys.RecvFrom(
                     _fd,
@@ -75,15 +77,25 @@ sealed class WindowsUdpSocketV6 : IUdpSocket<AddressV6>
                     ref addressLength);
 
                 if (receiveResult == -1)
-                    Sys.Throw(ExceptionMessages.ReceiveData);
+                {
+                    var error = Sys.WsaGetLastError();
+                    if (!Error.IsInterrupt(error) || HandleInterruptOnReceive == InterruptHandling.Error)
+                        Sys.Throw(error, ExceptionMessages.ReceiveData);
+                    if (HandleInterruptOnReceive == InterruptHandling.Abort)
+                    {
+                        origin = default;
+                        return new(SocketResult.Interrupt);
+                    }
+                    goto retryReceive;
+                }
 
                 origin = _address.GetV6(addressLength);
                 return new((int)receiveResult);
             }
-            else
-            {
-                throw CreateExceptionFor.BadPoll();
-            }
+
+            if ((pfd.REvents & Poll.Err) != 0)
+                ThrowExceptionFor.PollSocketError();
+            ThrowExceptionFor.BadPollState();
         }
         else if (pollResult == -1)
         {
@@ -92,16 +104,16 @@ sealed class WindowsUdpSocketV6 : IUdpSocket<AddressV6>
             {
                 Sys.Throw(error, ExceptionMessages.Poll);
             }
-            else if (HandleInterruptOnReceive != InterruptHandling.Abort)
-            {
-                var elapsed = Stopwatch.GetElapsedTime(start);
-                milliseconds = Core.GetMilliseconds(timeout - elapsed);
-                goto retry;
-            }
-            else
+            else if (HandleInterruptOnReceive == InterruptHandling.Abort)
             {
                 origin = default;
                 return new(SocketResult.Interrupt);
+            }
+            else
+            {
+                var elapsed = (int)(Environment.TickCount64 - start);
+                milliseconds = int.Max(0, milliseconds - elapsed);
+                goto retry;
             }
         }
 

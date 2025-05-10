@@ -6,5 +6,4 @@ The .NET socket APIs were created in this early era. All the design focus went i
 
 Also, 'endpoint' is one word. Not sure what happened there. 🙃
 
-Ultimately, the other problem with the included sockets API is that they are too low level. They have all this ceremony around picking socket types, address families, etc. An attempt was made to simpify this with UDP-specific and TCP-specific classes, but it's just more allocations with bloated interfaces that predate `Span<T>`.
-
+Ultimately, the other problem with the included sockets API is that they are too low level. They have all this ceremony around picking socket types, address families, etc. An attempt was made to simplify this with UDP-specific and TCP-specific classes, but it's just more allocations with bloated interfaces that predate `Span<T>`.

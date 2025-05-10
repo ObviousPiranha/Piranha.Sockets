@@ -1,11 +1,10 @@
 using System;
-using System.Threading;
 
 namespace Piranha.Sockets.Test;
 
 public class TcpTest
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(1);
+    private const int Timeout = 1000;
 
     [Fact]
     public void SendAndReceiveTcpV4()

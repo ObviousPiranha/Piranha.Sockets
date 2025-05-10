@@ -11,6 +11,6 @@ public interface ITcpClient<TAddress> : IDisposable
 
     Endpoint<TAddress> Origin { get; }
     TransferResult Send(ReadOnlySpan<byte> message);
-    TransferResult Receive(Span<byte> buffer, TimeSpan timeout);
+    TransferResult Receive(Span<byte> buffer, int timeoutInMilliseconds);
     Endpoint<TAddress> GetSocketName();
 }

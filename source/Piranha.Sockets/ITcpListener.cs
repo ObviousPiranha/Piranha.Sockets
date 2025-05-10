@@ -8,6 +8,6 @@ public interface ITcpListener<TAddress> : IDisposable
     InterruptHandling HandleInterruptOnAccept { get; set; }
     bool WasInterrupted { get; }
 
-    ITcpClient<TAddress>? Accept(TimeSpan timeout);
+    ITcpClient<TAddress>? Accept(int timeoutInMilliseconds);
     Endpoint<TAddress> GetSocketName();
 }

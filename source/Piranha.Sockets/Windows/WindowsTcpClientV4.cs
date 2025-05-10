@@ -1,6 +1,4 @@
 using System;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
 
 namespace Piranha.Sockets.Windows;
 
@@ -27,13 +25,13 @@ sealed class WindowsTcpClientV4 : ITcpClient<AddressV4>
             Sys.Throw(ExceptionMessages.CloseSocket);
     }
 
-    public TransferResult Receive(Span<byte> buffer, TimeSpan timeout)
+    public TransferResult Receive(Span<byte> buffer, int timeoutInMilliseconds)
     {
-        var milliseconds = Core.GetMilliseconds(timeout);
+        var milliseconds = int.Max(0, timeoutInMilliseconds);
         var pfd = new WsaPollFd { Fd = _fd, Events = Poll.In };
 
     retry:
-        var start = Stopwatch.GetTimestamp();
+        var start = Environment.TickCount64;
         var pollResult = Sys.WsaPoll(ref pfd, 1, milliseconds);
 
         if (0 < pollResult)
@@ -68,28 +66,26 @@ sealed class WindowsTcpClientV4 : ITcpClient<AddressV4>
             }
 
             if ((pfd.REvents & Poll.Err) != 0)
-            {
                 ThrowExceptionFor.PollSocketError();
-            }
 
             return new(0);
         }
-        else if (pollResult < 0)
+        else if (pollResult == -1)
         {
             var error = Sys.WsaGetLastError();
             if (!Error.IsInterrupt(error) || HandleInterruptOnReceive == InterruptHandling.Error)
             {
-                Sys.Throw(ExceptionMessages.Poll);
+                Sys.Throw(error, ExceptionMessages.Poll);
             }
-            else if (HandleInterruptOnReceive != InterruptHandling.Abort)
+            else if (HandleInterruptOnReceive == InterruptHandling.Abort)
             {
-                var elapsed = Stopwatch.GetElapsedTime(start);
-                milliseconds = Core.GetMilliseconds(timeout - elapsed);
-                goto retry;
+                return new(SocketResult.Interrupt);
             }
             else
             {
-                return new(SocketResult.Interrupt);
+                var elapsed = (int)(Environment.TickCount64 - start);
+                milliseconds = int.Max(0, milliseconds - elapsed);
+                goto retry;
             }
         }
 

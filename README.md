@@ -32,95 +32,87 @@ var endpointV4 = new Endpoint<AddressV4>(AddressV4.Local, 5000);
 var endpointV6 = new Endpoint<AddressV6>(AddressV6.Local, 5000);
 
 // Lots more shortcuts.
-var origin = Endpoint.Create(AddressV4.Local, 5000);
+Endpoint<AddressV4> origin = Endpoint.Create(AddressV4.Local, 5000);
 
 // Or you can use some extensions.
 var host = new AddressV4(10, 0, 0, 23);
-var endpoint = host.OnPort(5000); // Endpoint<AddressV4>
+Endpoint<AddressV4> endpoint = host.OnPort(5000);
 ```
 
 ### UDP Sockets
 
-Now you're ready to make a socket! The sockets are clearly split into two kinds: one for IPv4 and one for IPv6. This _constrains_ the interface to work with specific address types: `IUdpSocket<T>`.
+Now you're ready to make a socket! All socket types are generic as they are _constrained_ to IPv4 or IPv6.
 
 ```csharp
-// Create a socket without binding. Ideal for clients.
-using var client = UdpSocketV4.Create();
-
 // Create a socket and listen on port 10215. Ideal for servers.
-using var server = UdpSocketV4.BindAnyIp(10215);
+using IUdpSocket<AddressV4> server = UdpSocketV4.BindAnyIp(10215);
 
-// Create an IPv6 socket.
-using var clientV6 = UdpSocketV6.Create();
+// Connect a client.
+Endpoint<AddressV4> origin = new AddressV4(10, 0, 0, 23).OnPort(10215);
+using IUdpClient<AddressV4> client = UdpClientV4.Connect(origin);
 
-// Create an IPv6 server and allow interop with IPv4!
-using var serverV6 = UdpSocketV6.BindAnyIp(allowV4: true);
+// Create an IPv6 server and (optionally) allow interop with IPv4!
+using IUdpSocket<AddressV6> serverV6 = UdpSocketV6.BindAnyIp(38555, allowV4: true);
+
+// Connect an IPv6 client.
+Endpoint<AddressV6> originV6 = myAddressV6.OnPort(38555);
+using IUdpClient<AddressV6> clientV6 = UdpClientV6.Connect(originV6);
 ```
 
-Sending data is very simple. It accepts any `ReadOnlySpan<byte>`.
+Sending data is very simple. The `Send` method accepts any `ReadOnlySpan<byte>`.
 
 ```csharp
 var destination = AddressV4.Local.OnPort(10215);
-var bytesSent = client.Send("Hello!"u8, destination);
-// It returns how many bytes were actually sent.
+
+// IUdpSocket needs a destination address.
+server.Send("Hello!"u8, destination);
+
+// IUdpClient is locked to a single address.
+client.Send("Greetings!"u8);
 ```
 
-Receiving data is only marginally more complex. It lets you specify a timeout. (Simply pick zero if you want a non-blocking call.)
+Receiving data is only marginally more complex. It lets you specify a timeout in milliseconds. (Simply pick zero if you want a non-blocking call.)
 
 ```csharp
 var buffer = new byte[2048];
-var timeout = TimeSpan.FromSeconds(1);
-var bytesReceived = server.Receive(buffer, timeout, out var sender);
-if (bytesReceived.HasValue)
+var timeout = 1000; // One second
+var result = server.Receive(buffer, timeout, out var sender);
+if (0 < result.Count)
 {
-    var message = buffer.AsSpan(0, bytesReceived.Value);
-    // Handle received bytes!
-    Console.WriteLine($"Received {n} bytes from host {sender}.");
+    var message = buffer.AsSpan(0, result.Count);
+    // Handle received bytes here!
+    Console.WriteLine($"Received {result.Count} bytes from host {sender}.");
 }
 else
 {
-    // Null indicates timeout. No harm done!
-}
-```
-
-If you know that your socket is a client connection that will only speak to one other endpoint, there is another option: `IUdpClient<T>`.
-
-```csharp
-using var client = UdpClientV4.Connect(endpoint);
-
-var bytesSent = client.Send("Hello!"u8);
-
-// We already know the origin. So just receive data!
-var bytesReceived = client.Receive(buffer, timeout);
-if (bytesReceived.HasValue)
-{
-    // You know the drill!
+    // Probably a timeout.
+    // The field result.Result will tell you if it was a timeout or an interrupt.
 }
 ```
 
 ### TCP Sockets
 
-Create a TCP listener to get started. Its type is `ITcpListener<T>`.
+Create a TCP listener to get started.
 
 ```csharp
 var bindEndpoint = AddressV4.Local.OnPort(5555);
-using var listener = TcpListenerV4.Listen(bindEndpoint, 4); // Backlog of 4 pending connections.
+using ITcpListener<AddressV4> listener = TcpListenerV4.Listen(bindEndpoint, 4); // Backlog of 4 pending connections.
 ```
 
-Connect with a client. Its type is `ITcpClient<T>`.
+Connect with a client.
 
 ```csharp
-using var client = TcpClientV4.Connect(endpoint);
+using ITcpClient<AddressV4> client = TcpClientV4.Connect(serverEndpoint);
 ```
 
 Accept the connection into another `ITcpClient<T>` on the server side.
 
 ```csharp
-var timeout = TimeSpan.FromSeconds(1);
-using var server = listener.Accept(timeout);
+var timeout = 1000; // One second
+using ITcpClient<AddressV4> server = listener.Accept(timeout);
 if (server is null)
 {
-    // Null object just means timeout was hit.
+    // Null object just means it times out or was interrupted.
 }
 ```
 
@@ -129,5 +121,9 @@ Communicate back and forth with TCP goodness. All TCP sockets enable `TCP_NODELA
 ```csharp
 client.Send("HTTP shenanigans"u8);
 
-var bytesReceived = server.Receive(buffer, timeout);
+var result = server.Receive(buffer, timeout);
+if (0 < result.Count)
+{
+    // Conquer the world here.
+}
 ```

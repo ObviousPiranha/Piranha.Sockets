@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 
 namespace Piranha.Sockets.Linux;
 
@@ -26,13 +25,13 @@ sealed class LinuxTcpClientV6 : ITcpClient<AddressV6>
             Sys.Throw(ExceptionMessages.CloseSocket);
     }
 
-    public TransferResult Receive(Span<byte> buffer, TimeSpan timeout)
+    public TransferResult Receive(Span<byte> buffer, int timeoutInMilliseconds)
     {
-        var milliseconds = Core.GetMilliseconds(timeout);
+        var milliseconds = int.Max(0, timeoutInMilliseconds);
         var pfd = new PollFd { Fd = _fd, Events = Poll.In };
 
     retry:
-        var start = Stopwatch.GetTimestamp();
+        var start = Environment.TickCount64;
         var pollResult = Sys.Poll(ref pfd, 1, milliseconds);
 
         if (0 < pollResult)
@@ -66,9 +65,7 @@ sealed class LinuxTcpClientV6 : ITcpClient<AddressV6>
             }
 
             if ((pfd.REvents & Poll.Err) != 0)
-            {
                 ThrowExceptionFor.PollSocketError();
-            }
 
             return new(0);
         }
@@ -77,17 +74,17 @@ sealed class LinuxTcpClientV6 : ITcpClient<AddressV6>
             var errNo = Sys.ErrNo();
             if (!Error.IsInterrupt(errNo) || HandleInterruptOnReceive == InterruptHandling.Error)
             {
-                Sys.Throw(ExceptionMessages.Poll);
+                Sys.Throw(errNo, ExceptionMessages.Poll);
             }
-            else if (HandleInterruptOnReceive != InterruptHandling.Abort)
+            else if (HandleInterruptOnReceive == InterruptHandling.Abort)
             {
-                var elapsed = Stopwatch.GetElapsedTime(start);
-                milliseconds = Core.GetMilliseconds(timeout - elapsed);
-                goto retry;
+                return new(SocketResult.Interrupt);
             }
             else
             {
-                return new(SocketResult.Interrupt);
+                var elapsed = (int)(Environment.TickCount64 - start);
+                milliseconds = int.Max(0, milliseconds - elapsed);
+                goto retry;
             }
         }
 
